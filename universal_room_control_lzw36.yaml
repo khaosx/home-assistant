@@ -1,6 +1,7 @@
 blueprint:
   name: Universal Room Control LZW36 (Overhead + Optional Lamps)
   description: >
+    **DEPRECATED:** Please use `unified_room_control.yaml` instead.
     Interface Usability Language for Inovelli LZW36 fan/light combo switches.
     Light button:
       - Single tap: If off → Normal; if on → Off
