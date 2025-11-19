@@ -1,1 +1,328 @@
+blueprint:
+  name: Universal Room Control (Overhead + Optional Lamps)
+  description: >
+    Implements your house-wide Interface Usability Language for a single room:
+    - Up single tap: Normal (AL on, overhead on, Night Mode off)
+    - Down single tap: Off (all off, Night Mode reset to off)
+    - Up double tap: Full Burn (100% overhead, AL off)
+    - Up triple tap: Cheat Code (optional scene)
+    Lamps, cheat scene, and Adaptive Lighting are optional.
+  domain: automation
+  input:
+    switch_device:
+      name: Room switch (Inovelli / Z-Wave)
+      description: The wall switch that will drive the room modes.
+      selector:
+        device: {}
 
+    overhead_light:
+      name: Overhead light (group or single)
+      description: Main utility light for this room (group or single entity).
+      selector:
+        entity:
+          domain: light
+
+    lamp_group:
+      name: Lamp / ambience group (optional)
+      description: Optional group of lamps / ambience lights in this room.
+      default: ""
+      selector:
+        entity:
+          domain: light
+
+    mode_helper:
+      name: Mode helper (input_select, optional)
+      description: >
+        Optional input_select to track the room mode: Off, Normal, Full Burn, Cheat Code.
+        If left empty, the automation will still work but mode won't be recorded.
+      default: ""
+      selector:
+        entity:
+          domain: input_select
+
+    cheat_scene:
+      name: Cheat Code scene (optional)
+      description: Scene to activate on triple-tap up (e.g. Spa Time / Let's Get Freaky).
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    al_master:
+      name: Adaptive Lighting master switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_brightness:
+      name: Adaptive Lighting brightness switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_color:
+      name: Adaptive Lighting color switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_sleep_mode:
+      name: Adaptive Lighting sleep/night mode switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    include_lamps_normal:
+      name: Include lamps in Normal mode
+      description: Turn on lamps along with overhead when entering Normal mode.
+      default: false
+      selector:
+        boolean: {}
+
+    include_lamps_full_burn:
+      name: Include lamps in Full Burn
+      description: Turn on lamps as well when entering Full Burn mode.
+      default: false
+      selector:
+        boolean: {}
+
+    full_burn_color_temp_kelvin:
+      name: Full Burn color temperature (Kelvin)
+      description: Color temperature used in Full Burn mode.
+      default: 6500
+      selector:
+        number:
+          min: 2000
+          max: 7000
+          step: 50
+          unit_of_measurement: K
+
+    double_down_actions:
+      name: Double-down actions (optional)
+      description: >
+        Actions to run when the switch is double-tapped down in this room.
+        Leave empty to do nothing.
+      default: []
+      selector:
+        action: {}
+
+mode: restart
+
+trigger:
+  # Up single tap -> Normal
+  - id: single_up
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 0
+
+  # Down single tap -> Off
+  - id: single_down
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "001"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 001
+    value: 0
+
+  # Up double tap -> Full Burn
+  - id: double_up
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 3
+
+  # Up triple tap -> Cheat Code
+  - id: triple_up
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 4
+
+  # Down double tap -> custom actions
+  - id: double_down
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "001"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 001
+    value: 3
+
+variables:
+  overhead_light: !input overhead_light
+  lamp_group: !input lamp_group
+  mode_helper: !input mode_helper
+  cheat_scene: !input cheat_scene
+  al_master: !input al_master
+  al_brightness: !input al_brightness
+  al_color: !input al_color
+  al_sleep_mode: !input al_sleep_mode
+  include_lamps_normal: !input include_lamps_normal
+  include_lamps_full_burn: !input include_lamps_full_burn
+  full_burn_ct: !input full_burn_color_temp_kelvin
+
+action:
+  - choose:
+      # DOWN DOUBLE TAP -> CUSTOM ACTIONS (optional)
+      - conditions:
+          - condition: trigger
+            id: double_down
+        sequence: !input double_down_actions
+
+      # UP SINGLE TAP -> NORMAL
+      - conditions:
+          - condition: trigger
+            id: single_up
+        sequence:
+          # Set mode helper (Normal)
+          - if:
+              - condition: template
+                value_template: "{{ mode_helper != '' }}"
+            then:
+              - service: input_select.select_option
+                target:
+                  entity_id: "{{ mode_helper }}"
+                data:
+                  option: "Normal"
+
+          # Turn on Adaptive Lighting (if provided)
+          - if:
+              - condition: template
+                value_template: "{{ al_master != '' }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ al_master }}"
+          - if:
+              - condition: template
+                value_template: "{{ al_brightness != '' }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ al_brightness }}"
+          - if:
+              - condition: template
+                value_template: "{{ al_color != '' }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ al_color }}"
+          
+          # --- MODIFICATION START: Ensure Sleep Mode is OFF on Single Tap UP ---
+          - if:
+              - condition: template
+                value_template: "{{ al_sleep_mode != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_sleep_mode }}"
+          # --- MODIFICATION END ---
+
+          # Turn on overhead
+          - service: light.turn_on
+            target:
+              entity_id: "{{ overhead_light }}"
+
+          # Optionally turn on lamps
+          - if:
+              - condition: template
+                value_template: >
+                  {{ include_lamps_normal and lamp_group != '' }}
+            then:
+              - service: light.turn_on
+                target:
+                  entity_id: "{{ lamp_group }}"
+
+      # DOWN SINGLE TAP -> OFF
+      - conditions:
+          - condition: trigger
+            id: single_down
+        sequence:
+          # Set mode helper (Off)
+          - if:
+              - condition: template
+                value_template: "{{ mode_helper != '' }}"
+            then:
+              - service: input_select.select_option
+                target:
+                  entity_id: "{{ mode_helper }}"
+                data:
+                  option: "Off"
+
+          # --- MODIFICATION START: Ensure Sleep Mode is OFF on Single Tap DOWN ---
+          - if:
+              - condition: template
+                value_template: "{{ al_sleep_mode != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_sleep_mode }}"
+          # --- MODIFICATION END ---
+
+          # Turn off all lights
+          - service: light.turn_off
+            target:
+              entity_id:
+                - "{{ overhead_light }}"
+          - if:
+              - condition: template
+                value_template: "{{ lamp_group != '' }}"
+            then:
+              - service: light.turn_off
+                target:
+                  entity_id: "{{ lamp_group }}"
+
+      # UP DOUBLE TAP -> FULL BURN
+      - conditions:
+          - condition: trigger
+            id: double_up
+        sequence:
+          # Set mode helper (Full Burn)
+          - if:
+              - condition: template
+                value_template: "{{ mode_helper != '' }}"
+            then:
+              - service: input_select.select_option
+                target:
+                  entity_id: "{{ mode_helper }}"
+                data:
+                  option: "Full Burn"
+
+          # Turn off all AL switches (matching your bathroom pattern)
+          - if:
+              - condition: template
+                value_template: "{{ al_master != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_master
