@@ -1,0 +1,494 @@
+blueprint:
+  name: Unified Room Control (Standard + LZW36)
+  description: >
+    Master blueprint for your Interface Usability Language.
+    
+    **Applicable Models:**
+    1. **Inovelli Red Series On/Off (LZW30-SN)**: Use "Standard" Profile.
+    2. **Inovelli Fan/Light Combo (LZW36)**: Use "LZW36" Profile.
+
+    **Switch Profiles:**
+    
+    1. STANDARD (Up/Down Switches like LZW30-SN):
+       - Up Single: Normal (AL On, Overhead On)
+       - Down Single: Off (All Off)
+       - Up Double: Full Burn
+       - Down Double: Custom Actions
+       
+    2. LZW36 (Fan/Light Combo):
+       - Light Btn Single: Toggle (Off->Normal, On->Off)
+       - Fan Btn Single: Ignored (Native Control)
+       - Light Btn Double: Full Burn
+       - Fan Btn Double: Custom Actions
+       
+    Common Features:
+    - Triple Tap Up/Light: Cheat Code
+    - AL Sleep Mode is auto-disabled on Single Taps (Up or Down/Off).
+  domain: automation
+
+  input:
+    switch_device:
+      name: Switch Device
+      description: The Inovelli device (Standard or LZW36).
+      selector:
+        device:
+          integration: zwave_js
+
+    switch_profile:
+      name: Switch Profile
+      description: >
+        Select the logic profile for this device. 
+        "Standard" uses Up/Down logic. "LZW36" uses Toggle logic for the light button.
+      default: "Standard (Up/Down)"
+      selector:
+        select:
+          options:
+            - "Standard (Up/Down)"
+            - "LZW36 (Fan/Light)"
+
+    overhead_light:
+      name: Overhead light
+      description: Main utility light.
+      selector:
+        entity:
+          domain: light
+
+    lamp_group:
+      name: Lamp / ambience group (optional)
+      default: ""
+      selector:
+        entity:
+          domain: light
+
+    mode_helper:
+      name: Mode helper (input_select, optional)
+      default: ""
+      selector:
+        entity:
+          domain: input_select
+
+    cheat_scene:
+      name: Cheat Code scene (optional)
+      description: Triggered by Triple Tap Up/Light.
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    al_master:
+      name: AL Master Switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_brightness:
+      name: AL Brightness Switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_color:
+      name: AL Color Switch (optional)
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    al_sleep_mode:
+      name: AL Sleep Mode Switch (optional)
+      description: Will be forced OFF during Normal/Off transitions.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+    include_lamps_normal:
+      name: Include lamps in Normal mode
+      default: false
+      selector:
+        boolean: {}
+
+    include_lamps_full_burn:
+      name: Include lamps in Full Burn
+      default: false
+      selector:
+        boolean: {}
+
+    full_burn_color_temp_kelvin:
+      name: Full Burn Kelvin
+      default: 6500
+      selector:
+        number:
+          min: 2000
+          max: 7000
+          step: 50
+          unit_of_measurement: K
+
+    secondary_double_tap_actions:
+      name: Secondary Button Double-Tap (Down or Fan)
+      description: Actions for Double Tap Down (Standard) or Double Tap Fan (LZW36).
+      default: []
+      selector:
+        action: {}
+
+mode: restart
+
+trigger:
+  # Scene 002 = Up Paddle OR Light Button
+  - id: btn_main_single
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 0
+
+  - id: btn_main_double
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 3
+
+  - id: btn_main_triple
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "002"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 002
+    value: 4
+
+  # Scene 001 = Down Paddle OR Fan Button
+  - id: btn_sec_single
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "001"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 001
+    value: 0
+
+  - id: btn_sec_double
+    platform: device
+    device_id: !input switch_device
+    domain: zwave_js
+    type: event.value_notification.central_scene
+    property: scene
+    property_key: "001"
+    endpoint: 0
+    command_class: 91
+    subtype: Endpoint 0 Scene 001
+    value: 3
+
+variables:
+  profile: !input switch_profile
+  overhead_light: !input overhead_light
+  lamp_group: !input lamp_group
+  mode_helper: !input mode_helper
+  cheat_scene: !input cheat_scene
+  al_master: !input al_master
+  al_brightness: !input al_brightness
+  al_color: !input al_color
+  al_sleep_mode: !input al_sleep_mode
+  include_lamps_normal: !input include_lamps_normal
+  include_lamps_full_burn: !input include_lamps_full_burn
+  full_burn_ct: !input full_burn_color_temp_kelvin
+
+action:
+  - choose:
+      # ---------------------------------------------------------
+      # 1. MAIN BUTTON SINGLE TAP (Up / Light)
+      #    - Standard: Always Normal
+      #    - LZW36: Toggle (If Off->Normal, If On->Off)
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: btn_main_single
+        sequence:
+          - choose:
+              # PATH A: Enter NORMAL Mode
+              # Condition: Profile is Standard OR (Profile is LZW36 AND Light is Off)
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: template
+                        value_template: "{{ profile == 'Standard (Up/Down)' }}"
+                      - condition: and
+                        conditions:
+                          - condition: template
+                            value_template: "{{ profile == 'LZW36 (Fan/Light)' }}"
+                          - condition: template
+                            value_template: "{{ is_state(overhead_light, 'off') }}"
+                sequence:
+                  # Set Helper -> Normal
+                  - if:
+                      - condition: template
+                        value_template: "{{ mode_helper != '' }}"
+                    then:
+                      - service: input_select.select_option
+                        target:
+                          entity_id: "{{ mode_helper }}"
+                        data:
+                          option: "Normal"
+                  # AL Switches -> ON
+                  - if:
+                      - condition: template
+                        value_template: "{{ al_master != '' }}"
+                    then:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ al_master }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ al_brightness != '' }}"
+                    then:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ al_brightness }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ al_color != '' }}"
+                    then:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ al_color }}"
+                  # Sleep Mode -> OFF (Safety)
+                  - if:
+                      - condition: template
+                        value_template: "{{ al_sleep_mode != '' }}"
+                    then:
+                      - service: switch.turn_off
+                        target:
+                          entity_id: "{{ al_sleep_mode }}"
+                  # Lights -> ON
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ overhead_light }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ include_lamps_normal and lamp_group != '' }}"
+                    then:
+                      - service: light.turn_on
+                        target:
+                          entity_id: "{{ lamp_group }}"
+
+            # PATH B: Enter OFF Mode (LZW36 Toggle Logic)
+            # Only runs if LZW36 AND Light was ALREADY ON
+            default:
+              # Set Helper -> Off
+              - if:
+                  - condition: template
+                    value_template: "{{ mode_helper != '' }}"
+                then:
+                  - service: input_select.select_option
+                    target:
+                      entity_id: "{{ mode_helper }}"
+                    data:
+                      option: "Off"
+              # Sleep Mode -> OFF (Reset)
+              - if:
+                  - condition: template
+                    value_template: "{{ al_sleep_mode != '' }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ al_sleep_mode }}"
+              # Lights -> OFF
+              - service: light.turn_off
+                target:
+                  entity_id: "{{ overhead_light }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ lamp_group != '' }}"
+                then:
+                  - service: light.turn_off
+                    target:
+                      entity_id: "{{ lamp_group }}"
+
+      # ---------------------------------------------------------
+      # 2. SECONDARY BUTTON SINGLE TAP (Down / Fan)
+      #    - Standard: Turn Off
+      #    - LZW36: Do NOTHING (Let fan control itself)
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: btn_sec_single
+          # CRITICAL: Only run this for Standard profile.
+          - condition: template
+            value_template: "{{ profile == 'Standard (Up/Down)' }}"
+        sequence:
+          # Set Helper -> Off
+          - if:
+              - condition: template
+                value_template: "{{ mode_helper != '' }}"
+            then:
+              - service: input_select.select_option
+                target:
+                  entity_id: "{{ mode_helper }}"
+                data:
+                  option: "Off"
+          # Sleep Mode -> OFF (Reset)
+          - if:
+              - condition: template
+                value_template: "{{ al_sleep_mode != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_sleep_mode }}"
+          # Lights -> OFF
+          - service: light.turn_off
+            target:
+              entity_id:
+                - "{{ overhead_light }}"
+          - if:
+              - condition: template
+                value_template: "{{ lamp_group != '' }}"
+            then:
+              - service: light.turn_off
+                target:
+                  entity_id: "{{ lamp_group }}"
+
+      # ---------------------------------------------------------
+      # 3. MAIN BUTTON DOUBLE TAP (Up / Light) -> FULL BURN
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: btn_main_double
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ mode_helper != '' }}"
+            then:
+              - service: input_select.select_option
+                target:
+                  entity_id: "{{ mode_helper }}"
+                data:
+                  option: "Full Burn"
+          # Kill AL
+          - if:
+              - condition: template
+                value_template: "{{ al_master != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_master }}"
+          - if:
+              - condition: template
+                value_template: "{{ al_brightness != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_brightness }}"
+          - if:
+              - condition: template
+                value_template: "{{ al_color != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_color }}"
+          - if:
+              - condition: template
+                value_template: "{{ al_sleep_mode != '' }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ al_sleep_mode }}"
+          # Max Brightness
+          - service: light.turn_on
+            target:
+              entity_id: "{{ overhead_light }}"
+            data:
+              brightness_pct: 100
+              transition: 0
+              color_temp_kelvin: "{{ full_burn_ct }}"
+          - if:
+              - condition: template
+                value_template: "{{ include_lamps_full_burn and lamp_group != '' }}"
+            then:
+              - service: light.turn_on
+                target:
+                  entity_id: "{{ lamp_group }}"
+                data:
+                  brightness_pct: 100
+                  transition: 0
+
+      # ---------------------------------------------------------
+      # 4. MAIN BUTTON TRIPLE TAP (Up / Light) -> CHEAT CODE
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: btn_main_triple
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ cheat_scene != '' }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ mode_helper != '' }}"
+                then:
+                  - service: input_select.select_option
+                    target:
+                      entity_id: "{{ mode_helper }}"
+                    data:
+                      option: "Cheat Code"
+              # Kill AL
+              - if:
+                  - condition: template
+                    value_template: "{{ al_master != '' }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ al_master }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ al_brightness != '' }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ al_brightness }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ al_color != '' }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ al_color }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ al_sleep_mode != '' }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ al_sleep_mode }}"
+              - service: scene.turn_on
+                target:
+                  entity_id: "{{ cheat_scene }}"
+
+      # ---------------------------------------------------------
+      # 5. SECONDARY BUTTON DOUBLE TAP (Down / Fan) -> CUSTOM
+      # ---------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: btn_sec_double
+        sequence: !input secondary_double_tap_actions
+
+    default: []
