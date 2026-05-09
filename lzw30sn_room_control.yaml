@@ -106,6 +106,16 @@ blueprint:
           step: 50
           unit_of_measurement: K
 
+    lamps_only_override:
+      name: Lamps-only override switch (optional)
+      description: >
+        When this input_boolean is on, single-tap Normal mode turns on the
+        lamp group instead of the utility light. All other modes are unaffected.
+      default: ""
+      selector:
+        entity:
+          domain: input_boolean
+
     double_down_actions:
       name: Double-down actions (optional)
       description: >
@@ -195,6 +205,7 @@ variables:
   include_lamps_normal: !input include_lamps_normal
   include_lamps_full_burn: !input include_lamps_full_burn
   full_burn_ct: !input full_burn_color_temp_kelvin
+  lamps_only_override: !input lamps_only_override
 
 action:
   - choose:
@@ -243,20 +254,30 @@ action:
                 target:
                   entity_id: "{{ al_color }}"
 
-          # Turn on utility light
-          - service: light.turn_on
-            target:
-              entity_id: "{{ utility_light }}"
-
-          # Optionally turn on lamps
-          - if:
-              - condition: template
-                value_template: >
-                  {{ include_lamps_normal and lamp_group != '' }}
-            then:
+          # Utility light vs lamps depending on override toggle
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ lamps_only_override != '' and
+                         is_state(lamps_only_override, 'on') and
+                         lamp_group != '' }}
+                sequence:
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ lamp_group }}"
+            default:
               - service: light.turn_on
                 target:
-                  entity_id: "{{ lamp_group }}"
+                  entity_id: "{{ utility_light }}"
+              - if:
+                  - condition: template
+                    value_template: >
+                      {{ include_lamps_normal and lamp_group != '' }}
+                then:
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ lamp_group }}"
 
       # DOWN SINGLE TAP -> OFF
       - conditions:
@@ -303,7 +324,7 @@ action:
                 data:
                   option: "Full Burn"
 
-          # Turn off all AL switches (matching your bathroom pattern)
+          # Turn off all AL switches
           - if:
               - condition: template
                 value_template: "{{ al_master != '' }}"
@@ -376,7 +397,7 @@ action:
                     data:
                       option: "Cheat Code"
 
-              # Turn off AL master + optional other AL switches
+              # Turn off AL switches
               - if:
                   - condition: template
                     value_template: "{{ al_master != '' }}"
