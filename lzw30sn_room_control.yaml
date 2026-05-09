@@ -107,14 +107,13 @@ blueprint:
           unit_of_measurement: K
 
     lamps_only_override:
-      name: Lamps-only override switch (optional)
+      name: Lamps only (skip utility light)
       description: >
-        When this input_boolean is on, single-tap Normal mode turns on the
-        lamp group instead of the utility light. All other modes are unaffected.
-      default: ""
+        When enabled, single-tap Normal mode turns on the lamp group instead
+        of the utility light. All other modes are unaffected.
+      default: false
       selector:
-        entity:
-          domain: input_boolean
+        boolean: {}
 
     double_down_actions:
       name: Double-down actions (optional)
@@ -259,9 +258,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: >
-                      {{ lamps_only_override != '' and
-                         is_state(lamps_only_override, 'on') and
-                         lamp_group != '' }}
+                      {{ lamps_only_override and lamp_group != '' }}
                 sequence:
                   - service: light.turn_on
                     target:
